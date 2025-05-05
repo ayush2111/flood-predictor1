@@ -5,12 +5,15 @@ import pandas as pd
 app = Flask(__name__)
 
 # Load models and scaler
-models = {
-    'a': joblib.load('model_a.pkl'),
-    'b': joblib.load('model_b.pkl'),
-    'combined': joblib.load('model_all.pkl')
-}
-scaler = joblib.load('scaler.pkl')
+try:
+    models = {
+        'a': joblib.load('model_a.pkl'),
+        'b': joblib.load('model_b.pkl'),
+        'combined': joblib.load('model_all.pkl')
+    }
+    scaler = joblib.load('scaler.pkl')
+except Exception as e:
+    raise RuntimeError(f"Error loading models or scaler: {e}")
 
 @app.route('/')
 def home():
@@ -18,43 +21,45 @@ def home():
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    data = request.json
     try:
-        # Get inputs
-        region = data['region']
-        features = [
-            float(data['jun_sep']),
-            float(data['curve_number']),
-            float(data['retention']),
-            float(data['runoff'])
-        ]
-        
-        # Create DataFrame
-        sample_df = pd.DataFrame([features], columns=[
+        data = request.get_json(force=True)
+
+        # Validate and parse input data
+        region = data.get('region')
+        jun_sep = float(data.get('jun_sep', 0))
+        curve_number = float(data.get('curve_number', 0))
+        retention = float(data.get('retention', 0))
+        runoff = float(data.get('runoff', 0))
+
+        if region not in models:
+            return jsonify({'error': 'Invalid region specified.'}), 400
+
+        # Create feature DataFrame
+        features = pd.DataFrame([[
+            jun_sep, curve_number, retention, runoff
+        ]], columns=[
             'Jun-Sep', 'Curve Number', 
             'Potential Maximum Retention', 'Surface Runoff'
         ])
-        
-        # Scale features
-        sample_scaled = scaler.transform(sample_df)
-        
-        # Get prediction
+
+        # Preprocess
+        scaled_features = scaler.transform(features)
+
+        # Predict
         model = models[region]
-        proba = model.predict_proba(sample_scaled)[0][1]
-        prediction = model.predict(sample_scaled)[0]
-        
+        prediction = int(model.predict(scaled_features)[0])
+        probability = float(model.predict_proba(scaled_features)[0][1]) * 100
+
         return jsonify({
-            'probability': round(proba * 100, 2),
-            'prediction': int(prediction),
+            'prediction': prediction,
+            'probability': round(probability, 2),
             'model_used': f"Model {region.upper()}" if region != 'combined' else "Combined Model"
         })
-    
+
     except Exception as e:
-        print("Error:", e)
-        return jsonify({'error': str(e)}), 400
-        
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     import os
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=True, host='0.0.0.0', port=port)
