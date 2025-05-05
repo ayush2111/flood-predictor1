@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>🌦️ Flood Predictor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --transition-time: 0.5s;
+      }
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        min-height: 100vh;
+        margin: 0;
+        background-size: cover;
+        background-position: center;
+        transition: background-image var(--transition-time) ease-in-out;
+      }
+      .flood-bg {
+        background-image: url("{{ url_for('static', filename='images/flood-bg.jpg') }}");
+      }
+      .safe-bg {
+        background-image: url("{{ url_for('static', filename='images/normal-bg.jpg') }}");
+      }
+      .glass-card {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(10px);
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      }
+      .param-card {
+        background: rgba(245, 245, 245, 0.9);
+        border-radius: 12px;
+        transition: transform 0.3s ease;
+      }
+      .param-card:hover {
+        transform: translateY(-3px);
+      }
+      #gauge {
+        width: 200px;
+        height: 100px;
+        position: relative;
+      }
+      .gauge-text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -30%);
+        font-size: 2rem;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body class="safe-bg">
+    <div class="container py-5">
+      <div class="row justify-content-center">
+        <div class="col-lg-8">
+          <div class="glass-card p-4">
+            <h1 class="text-center mb-4">🌊 Flood Predictor</h1>
+
+            <!-- Input Form -->
+            <form id="predictionForm">
+              <div class="mb-4">
+                <label class="form-label fw-bold">Select Region</label>
+                <select class="form-select" id="regionSelect" required>
+                  <option value="a">Region A</option>
+                  <option value="b">Region B</option>
+                  <option value="combined">Combined Regions</option>
+                </select>
+              </div>
+
+              <div class="row g-3 mb-4">
+                <div class="col-md-6">
+                  <div class="param-card p-3">
+                    <label class="form-label"> Rainfall (mm)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      class="form-control"
+                      id="jun_sep"
+                      required
+                    />
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="param-card p-3">
+                    <label class="form-label">Curve Number</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      class="form-control"
+                      id="curve_number"
+                      required
+                    />
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="param-card p-3">
+                    <label class="form-label">Max Retention (mm)</label>
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="retention"
+                      readonly
+                    />
+                  </div>
+                </div>
+                <div class="col-md-6">
+                  <div class="param-card p-3">
+                    <label class="form-label">Surface Runoff (mm)</label>
+                    <input
+                      type="number"
+                      class="form-control"
+                      id="runoff"
+                      readonly
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button type="submit" class="btn btn-primary w-100 py-2">
+                Predict Flood Risk
+              </button>
+            </form>
+
+            <!-- Results Section -->
+            <div
+              id="resultSection"
+              class="mt-4 text-center"
+              style="display: none"
+            >
+              <div class="mb-3">
+                <span id="modelUsed" class="badge bg-dark fs-6"></span>
+              </div>
+              <div id="gauge">
+                <canvas id="gaugeCanvas"></canvas>
+                <div id="gaugeText" class="gauge-text">0%</div>
+              </div>
+              <div id="resultMessage" class="mt-3 fs-5 fw-bold"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Auto-calculation logic
+      function calculateSCS() {
+        const cn = parseFloat(document.getElementById("curve_number").value);
+        const rainfall = parseFloat(document.getElementById("jun_sep").value);
+
+        if (cn && rainfall) {
+          // Calculate Potential Maximum Retention (S)
+          const S = 254 * (100 / cn - 1);
+          document.getElementById("retention").value = S.toFixed(2);
+
+          // Calculate Surface Runoff (Q)
+          const Q =
+            rainfall > 0.2 * S
+              ? Math.pow(rainfall - 0.2 * S, 2) / (rainfall + 0.8 * S)
+              : 0;
+          document.getElementById("runoff").value = Q.toFixed(2);
+        }
+      }
+
+      // Event listeners for auto-calculation
+      document
+        .getElementById("curve_number")
+        .addEventListener("input", calculateSCS);
+      document
+        .getElementById("jun_sep")
+        .addEventListener("input", calculateSCS);
+
+      // Gauge drawing function
+      function drawGauge(ctx, percentage) {
+        ctx.clearRect(0, 0, 200, 100);
+
+        // Draw background
+        ctx.beginPath();
+        ctx.arc(100, 100, 80, Math.PI, 0);
+        ctx.lineWidth = 15;
+        ctx.strokeStyle = "#eee";
+        ctx.stroke();
+
+        // Draw progress
+        ctx.beginPath();
+        ctx.arc(100, 100, 80, Math.PI, Math.PI + Math.PI * (percentage / 100));
+        ctx.lineWidth = 15;
+        ctx.strokeStyle = percentage >= 50 ? "#ff4444" : "#00c851";
+        ctx.stroke();
+      }
+
+      // Form submission handler
+      document
+        .getElementById("predictionForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+
+          const formData = {
+            region: document.getElementById("regionSelect").value,
+            jun_sep: document.getElementById("jun_sep").value,
+            curve_number: document.getElementById("curve_number").value,
+            retention: document.getElementById("retention").value,
+            runoff: document.getElementById("runoff").value,
+          };
+
+          try {
+            const response = await fetch("/predict", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(formData),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+              // Update UI
+              document.getElementById("resultSection").style.display = "block";
+              document.getElementById(
+                "modelUsed"
+              ).textContent = `Model Used: ${result.model_used}`;
+
+              // Update background
+              document.body.className = result.prediction
+                ? "flood-bg"
+                : "safe-bg";
+
+              // Animate gauge
+              const canvas = document.getElementById("gaugeCanvas");
+              const ctx = canvas.getContext("2d");
+              canvas.width = 200;
+              canvas.height = 100;
+
+              let current = 0;
+              const animate = () => {
+                if (current <= result.probability) {
+                  drawGauge(ctx, current);
+                  document.getElementById(
+                    "gaugeText"
+                  ).textContent = `${Math.round(current)}%`;
+                  current += 1;
+                  requestAnimationFrame(animate);
+                }
+              };
+              animate();
+
+              // Update result message
+              const message = document.getElementById("resultMessage");
+              message.className = result.prediction
+                ? "text-danger"
+                : "text-success";
+              message.innerHTML = result.prediction
+                ? "🚨 High Flood Risk Detected!"
+                : "✅ No Immediate Flood Danger";
+            }
+          } catch (error) {
+            console.error("Prediction error:", error);
+          }
+        });
+    </script>
+  </body>
+</html>
